@@ -1,0 +1,313 @@
+
+<!-- Made as a Project by Sanskar -->
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Expense Analyzer for (Student)</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Expense Analyzer Specially for Students</h1>
+        <div class="subtitle">Enter expenses, upload CSV, and get instant AI categorization + suggestions</div>
+      </div>
+      <div class="topline">
+        <div class="muted small">Local persistence: saved in browser</div>
+        <div style="width:8px"></div>
+        <button id="exportCsv">Export CSV</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h3 style="margin-top:0">Add Expense</h3>
+        <div>
+          <label>Description</label>
+          <input id="desc" type="text" placeholder="e.g., chicken biryani, metro recharge, Netflix" />
+        </div>
+        <div class="input-row">
+          <div style="flex:1">
+            <label>Amount (₹)</label>
+            <input id="amount" type="number" placeholder="120" />
+          </div>
+          <div style="width:140px">
+            <label>Date</label>
+            <input id="date" type="date" />
+          </div>
+        </div>
+
+        <div class="input-row">
+          <div style="flex:1">
+            <label>Category</label>
+            <select id="category" style="border-radius: 10px;">
+              <option value="Auto">Auto</option>
+              <option value="Food & Dining">Food & Dining</option>
+              <option value="Groceries">Groceries</option>
+              <option value="Transport">Transport</option>
+              <option value="Entertainment">Entertainment</option>
+              <option value="Education">Education</option>
+              <option value="Bills">Bills</option>
+              <option value="Health">Health</option>
+              <option value="Shopping">Shopping</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div style="width:120px">
+            <label>Payment</label>
+            <select id="payment" style="border-radius: 10px;">
+              <option>Cash</option>
+              <option>Card</option>
+              <option>UPI</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button id="addBtn">Add Expense</button>
+          <input id="csvfile" type="file" accept=".csv" />
+          <button id="clearAll" style="background:#bb4d4d;color:white; position: relative; right: 60px;">Clear All</button>
+        </div>
+
+        <div style="margin-top:14px">
+          <label>Monthly budget (for savings suggestions)</label>
+          <input id="income" type="number" placeholder="e.g., 4000" />
+        </div>
+
+        <div style="margin-top:14px">
+          <label>Category budgets (comma separated `Category:amount` — e.g., Food & Dining:4000,Transport:2000)</label>
+          <input id="budgets" type="text" placeholder="Leave blank for none" />
+        </div>
+
+        <div class="expense-list" id="expenses"></div>
+
+      </section>
+
+      <section style="width: 420px;">
+        <div class="card" style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h3 style="margin:0">Overview & Insights</h3>
+            <div class="muted small">AI categorization</div>
+          </div>
+
+          <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:220px">
+              <div class="muted small">Total this month</div>
+              <div id="total" style="font-size:20px;font-weight:700">₹0</div>
+            </div>
+            <div style="flex:1;min-width:220px">
+              <div class="muted small">Top category</div>
+              <div id="topcat" style="font-size:20px;font-weight:700">-</div>
+            </div>
+            <div style="flex:1;min-width:220px">
+              <div class="muted small">Suggested saving</div>
+              <div id="saving" style="font-size:20px;font-weight:700">₹0</div>
+            </div>
+          </div>
+
+          <div style="margin-top:12px" id="alerts"></div>
+        </div>
+
+        <div class="card charts">
+          <canvas id="catChart"></canvas>
+          <canvas id="trendChart" style="background-color: floralwhite;"></canvas>
+          <canvas id="barChart" style="grid-column:1/3; background-color: floralwhite;"></canvas>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3 style="margin-top:0">Quick tips</h3>
+          <ul id="tips"></ul>
+        </div>
+
+      </section>
+    </div>
+
+    <footer>Made for students, for managing expenses accordingly.</footer>
+  </div>
+
+<script>
+
+// ----------------- Simple 'AI' Categorizer + Naive Bayes ------------------
+function tokenize(s){ return (s||'').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean); }
+
+
+class NaiveBayes {
+  constructor(){ this.vocab = new Set(); this.classCounts = {}; this.wordCounts = {}; this.totalDocs = 0; }
+  train(text, cls){
+    const toks = tokenize(text);
+    this.totalDocs++;
+    this.classCounts[cls] = (this.classCounts[cls]||0) + 1;
+    this.wordCounts[cls] = this.wordCounts[cls] || {};
+    for(const t of toks){ this.vocab.add(t); this.wordCounts[cls][t] = (this.wordCounts[cls][t]||0) + 1; }
+  }
+  predict(text){
+    const toks = tokenize(text);
+    const vocabSize = this.vocab.size || 1;
+    let best = {cls:null,score:-Infinity};
+    for(const cls of Object.keys(this.classCounts)){
+      let logProb = Math.log(this.classCounts[cls] / this.totalDocs);
+      const totalWordsInClass = Object.values(this.wordCounts[cls]||{}).reduce((a,b)=>a+b,0) + vocabSize;
+      for(const t of toks){
+        const count = (this.wordCounts[cls] && this.wordCounts[cls][t])||0;
+        const prob = (count + 1) / totalWordsInClass;
+        logProb += Math.log(prob);
+      }
+      if(logProb > best.score){ best = {cls,score:logProb}; }
+    }
+    return best.cls || 'Other';
+  }
+  toJSON(){ return {vocab:Array.from(this.vocab), classCounts:this.classCounts, wordCounts:this.wordCounts, totalDocs:this.totalDocs}; }
+  fromJSON(j){ this.vocab=new Set(j.vocab||[]); this.classCounts=j.classCounts||{}; this.wordCounts=j.wordCounts||{}; this.totalDocs=j.totalDocs||0; }
+}
+
+const NB = new NaiveBayes();
+
+// load persisted examples
+function loadState(){ try{ return JSON.parse(localStorage.getItem('expense_state')||'{}'); }catch(e){return {}; } }
+function saveState(s){ localStorage.setItem('expense_state', JSON.stringify(s)); }
+
+function categorizeExpense(desc){
+  if(!desc) return 'Other';
+  const s = loadState();
+  if(s.nb) { NB.fromJSON(s.nb); const pred = NB.predict(desc); if(pred) return pred; }
+  
+  
+  const descL = desc.toLowerCase();
+  const mapping = {
+    'Food & Dining':['restaurant','biryani','dinner','lunch','breakfast','cafe','meal','pizza','burger','thali'],
+    'Groceries':['grocery','supermarket','dmart','grocer','pulses','veg','vegetable','fruits'],
+    'Transport':['metro','uber','ola','bus','ticket','fuel','petrol','diesel','auto','taxi'],
+    'Entertainment':['netflix','prime','movie','cinema','game','concert'],
+    'Education':['tuition','course','library','exam','books','stationary','notebook','class'],
+    'Bills':['electricity','phone bill','internet','wifi','bill','water bill','rent'],
+    'Health':['doctor','clinic','hospital','medicine','pharma','pharmacy'],
+    'Shopping':['mall','shopping','flipkart','amazon','clothing','shirt','jeans','shoes']
+  };
+  for(const [cat, keys] of Object.entries(mapping)){
+    for(const k of keys){ if(descL.includes(k)) return cat; }
+  }
+  return 'Other';
+}
+
+// ----------------- Main App Logic ------------------
+function getExpenses(){ const s=loadState(); return s.expenses||[]; }
+function setExpenses(arr){ const s=loadState(); s.expenses=arr; saveState(s); }
+const $ = id => document.getElementById(id);
+function formatCurrency(v){ return '₹'+Number(v||0).toLocaleString('en-IN'); }
+
+// Charts
+let catChart, trendChart, barChart;
+function buildCharts(){
+  const catCtx = $('catChart').getContext('2d');
+  const trendCtx = $('trendChart').getContext('2d');
+  const barCtx = $('barChart').getContext('2d');
+  catChart = new Chart(catCtx, {type:'doughnut',data:{labels:[],datasets:[{data:[],label:'Categories'}]},options:{plugins:{legend:{position:'bottom'}}}});
+  trendChart = new Chart(trendCtx, {type:'line',data:{labels:[],datasets:[{label:'Daily spend',data:[],tension:0.3}]},options:{scales:{y:{beginAtZero:true}}}});
+  barChart = new Chart(barCtx, {type:'bar',data:{labels:[],datasets:[{label:'This month',data:[]}]},options:{indexAxis:'y',scales:{x:{beginAtZero:true}}}});
+}
+function updateCharts(data){
+  catChart.data.labels = data.catLabels; catChart.data.datasets[0].data = data.catValues; catChart.update();
+  trendChart.data.labels = data.dailyLabels; trendChart.data.datasets[0].data = data.dailyValues; trendChart.update();
+  barChart.data.labels = data.catLabels; barChart.data.datasets[0].data = data.catValues; barChart.update();
+}
+
+// main
+function renderExpenseList(){
+  const container = $('expenses'); container.innerHTML='';
+  const arr = getExpenses().slice().reverse();
+  for(const e of arr){
+    const div = document.createElement('div'); div.className='expense-item';
+    const left = document.createElement('div');
+    left.innerHTML = `<div style="font-weight:600">${e.description}</div><div class="muted small">${e.date} • ${e.payment}</div>`;
+    const right = document.createElement('div'); right.style.textAlign='right';
+    right.innerHTML = `<div style="font-weight:700">${formatCurrency(e.amount)}</div><div class="cat-pill">${e.category}</div>`;
+    div.appendChild(left); div.appendChild(right); container.appendChild(div);
+  }
+}
+function computeInsights(){
+  const arr = getExpenses();
+  const today = new Date(); const curMonth = today.getMonth(); const curYear = today.getFullYear();
+  const monthArr = arr.filter(x=>{ const d=new Date(x.date); return d.getMonth()===curMonth && d.getFullYear()===curYear; });
+  const total = monthArr.reduce((s,x)=>s+Number(x.amount),0);
+  const byCat = {}; for(const e of monthArr){ byCat[e.category] = (byCat[e.category]||0) + Number(e.amount); }
+  const catLabels = Object.keys(byCat).length?Object.keys(byCat):['No expenses']; const catValues = Object.values(byCat).length?Object.values(byCat):[0];
+  const daysInMonth = new Date(curYear, curMonth+1,0).getDate(); const dailyLabels = Array.from({length:daysInMonth},(_,i)=>String(i+1)); const dailyValues = Array(daysInMonth).fill(0);
+  for(const e of monthArr){ const d = new Date(e.date); dailyValues[d.getDate()-1]+=Number(e.amount); }
+  const topcat = catLabels.length?catLabels[catValues.indexOf(Math.max(...catValues))]:'-';
+  return {total, byCat, catLabels, catValues, dailyLabels, dailyValues, topcat};
+}
+function renderInsights(){
+  const ins = computeInsights(); $('total').innerText = formatCurrency(ins.total); $('topcat').innerText = ins.topcat || '-';
+  const income = Number($('income').value)||0; let suggestion = 0; let tips = [];
+  if(income>0){ suggestion = Math.max(0, Math.round(income*0.2)); tips.push('Try to save at least 20% of your income: suggested ₹'+suggestion+'.'); const remaining = income - ins.total;
+    if(remaining < suggestion) tips.push('Your current spending exceeds the suggested saving. Cut discretionary costs by ₹'+Math.abs(remaining - suggestion)+'.'); else tips.push('Based on current spending you can still save ₹'+remaining+' this month.');
+  } else { tips.push('Set your monthly income to get tailored saving suggestions.'); }
+  const budgetsRaw = $('budgets').value.trim(); const alerts = [];
+  if(budgetsRaw){ const parts = budgetsRaw.split(',').map(p=>p.trim()).filter(Boolean); const budgets = {};
+    for(const p of parts){ const [k,v] = p.split(':').map(x=>x.trim()); if(k && v) budgets[k]=Number(v); }
+    for(const [k,limit] of Object.entries(budgets)){ const spent = ins.byCat[k] || 0;
+      if(spent>limit) alerts.push(`Overspending alert: ${k} — spent ${formatCurrency(spent)} > budget ${formatCurrency(limit)}`);
+      else if(spent>limit*0.8) alerts.push(`Approaching budget for ${k}: spent ${formatCurrency(spent)} / ${formatCurrency(limit)}`);
+    }
+  }
+  if(ins.total > (income || Infinity)) alerts.push('Warning: Your month spending exceeds your declared income.');
+  if(ins.total > 0 && ins.total > (income*0.6)) alerts.push('High spending warning: You have used more than 60% of income this month.');
+  const aDiv = $('alerts'); aDiv.innerHTML=''; for(const al of alerts){ const p=document.createElement('div'); p.style.color='orange'; p.innerText = '⚠️ '+al; aDiv.appendChild(p); }
+  const tipsEl = $('tips'); tipsEl.innerHTML=''; for(const t of tips){ const li = document.createElement('li'); li.innerText=t; tipsEl.appendChild(li); }
+  $('saving').innerText = formatCurrency(suggestion);
+  updateCharts({catLabels: ins.catLabels, catValues: ins.catValues, dailyLabels: ins.dailyLabels, dailyValues: ins.dailyValues});
+}
+
+function addExpense(obj, skipSave=false){ const arr = getExpenses(); arr.push(obj); setExpenses(arr); if(!skipSave) renderAll(); }
+
+function parseCSV(text){
+  const lines = text.split(/\r?\n/).map(r=>r.trim()).filter(Boolean);
+  const header = lines.shift().split(',').map(h=>h.trim().toLowerCase());
+  const result = [];
+  for(const l of lines){ const cols = l.split(','); const obj={}; for(let i=0;i<header.length;i++){ obj[header[i]] = cols[i] ? cols[i].trim() : ''; }
+    result.push({description: obj.description||'Imported', amount: Number(obj.amount||0), date: obj.date||new Date().toISOString().slice(0,10), category: obj.category||'Auto', payment: obj.payment||'Cash'});
+  }
+  return result;
+}
+function exportCSV(){ const arr = getExpenses(); const header = ['description','amount','date','category','payment']; const body = arr.map(r=>`${escapeCsv(r.description)},${r.amount},${r.date},${escapeCsv(r.category)},${escapeCsv(r.payment)}`); const csv = header.join(',') + '\n' + body.join('\n'); const blob = new Blob([csv], {type:'text/csv'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='expenses_export.csv'; a.click(); URL.revokeObjectURL(url); }
+function escapeCsv(s){ if(typeof s!=='string') s=String(s); if(s.includes(',')||s.includes('\n')) return '"'+s.replace(/"/g,'""')+'"'; return s; }
+
+window.addEventListener('load',()=>{
+  if(!localStorage.getItem('expense_state')){ saveState({expenses:[], nb:null}); }
+  buildCharts(); renderAll();
+  $('date').value = new Date().toISOString().slice(0,10);
+  $('desc').addEventListener('input', ()=>{ const suggested = categorizeExpense($('desc').value); if(suggested) $('category').value = suggested; });
+  $('addBtn').addEventListener('click', ()=>{
+    const desc = $('desc').value.trim() || 'No description'; const amount = Number($('amount').value) || 0; const date = $('date').value || new Date().toISOString().slice(0,10);
+    const category = $('category').value || categorizeExpense(desc); const payment = $('payment').value || 'Cash'; if(amount<=0){ alert('Enter a positive amount'); return; }
+    const obj = {description:desc, amount, date, category, payment}; addExpense(obj); learnExample(desc, category); $('desc').value=''; $('amount').value='';
+  });
+  $('csvfile').addEventListener('change', async (ev)=>{ const f = ev.target.files[0]; if(!f) return; const txt = await f.text(); const parsed = parseCSV(txt); for(const p of parsed){ if(p.category==='Auto'){ p.category = categorizeExpense(p.description); } addExpense(p, true); learnExample(p.description, p.category); } renderAll(); });
+  $('clearAll').addEventListener('click', ()=>{ if(confirm('Clear ALL stored expenses? This cannot be undone unless you exported CSV.')){ setExpenses([]); const s=loadState(); s.nb=null; saveState(s); renderAll(); }});
+  $('exportCsv').addEventListener('click', exportCSV);
+  $('income').addEventListener('input', renderInsights);
+  $('budgets').addEventListener('input', renderInsights);
+});
+
+function learnExample(description, category){
+  const s = loadState(); s.nb = s.nb || {};
+  // update NB model
+  if(s.nb){ NB.fromJSON(s.nb); } 
+  NB.train(description, category);
+  s.nb = NB.toJSON(); saveState(s);
+  
+  renderInsights();
+}
+
+function renderAll(){ renderExpenseList(); renderInsights(); }
+</script>
+</body>
+</html>
